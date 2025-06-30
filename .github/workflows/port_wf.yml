@@ -1,0 +1,111 @@
+name: Port Infra Provisioning Simulation
+
+on:
+  workflow_dispatch:
+    inputs:
+      portRunId:
+        description: 'Port Run ID'
+        required: true
+      portBlueprint:
+        description: 'Port Blueprint'
+        required: true
+      entityId:
+        description: 'Entity ID'
+        required: true
+      portAction:
+        description: 'Port Action (created, updated, destroyed)'
+        required: true
+
+jobs:
+  provision-infra:
+    runs-on: ubuntu-latest
+    env:
+      PORT_CLIENT_ID: ${{ secrets.PORT_CLIENT_ID }}
+      PORT_CLIENT_SECRET: ${{ secrets.PORT_CLIENT_SECRET }}
+      PORT_BASE_URL: https://api.getport.io/v1
+      PORT_BLUEPRINT: ${{ github.event.inputs.portBlueprint }}
+      PORT_ENTITY_ID: ${{ github.event.inputs.entityId }}
+      PORT_RUN_ID: ${{ github.event.inputs.portRunId }}
+      PORT_ACTION: ${{ github.event.inputs.portAction }}
+
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+
+      - name: Log Entity Action to Port
+        uses: port-labs/port-github-action@v1
+        with:
+          clientId: ${{ env.PORT_CLIENT_ID }}
+          clientSecret: ${{ env.PORT_CLIENT_SECRET }}
+          operation: add-log
+          runId: ${{ env.PORT_RUN_ID }}
+          logMessage: |
+            📘 Port entity `${{ env.PORT_ENTITY_ID }}` was **${{ env.PORT_ACTION }}** via blueprint `${{ env.PORT_BLUEPRINT }}`.
+
+      - name: Simulate Terraform Scaffold
+        run: |
+          echo "Initializing Terraform scaffolding..."
+          sleep 2
+          echo "Scaffolded modules: VPC, EKS, GKE, Cloud Run, S3"
+
+      - name: Log Scaffold to Port
+        uses: port-labs/port-github-action@v1
+        with:
+          clientId: ${{ env.PORT_CLIENT_ID }}
+          clientSecret: ${{ env.PORT_CLIENT_SECRET }}
+          operation: add-log
+          runId: ${{ env.PORT_RUN_ID }}
+          logMessage: "📦 Terraform scaffolding completed: VPC, EKS, GKE, Cloud Run, S3"
+
+      - name: Random AWS or GCP Provisioning
+        id: cloud
+        run: |
+          CLOUDS=("AWS Lambda + API Gateway" "AWS Fargate Service" "GCP Cloud Run App" "GCP Pub/Sub with Scheduler" "AWS S3 + CloudFront CDN")
+          SELECTED=${CLOUDS[$RANDOM % ${#CLOUDS[@]}]}
+          echo "Provisioning cloud infra: $SELECTED"
+          echo "cloudService=$SELECTED" >> $GITHUB_OUTPUT
+          sleep 3
+
+      - name: Log Cloud Provisioning to Port
+        uses: port-labs/port-github-action@v1
+        with:
+          clientId: ${{ env.PORT_CLIENT_ID }}
+          clientSecret: ${{ env.PORT_CLIENT_SECRET }}
+          operation: add-log
+          runId: ${{ env.PORT_RUN_ID }}
+          logMessage: "🌐 Provisioned cloud service: ${{ steps.cloud.outputs.cloudService }}"
+
+      - name: Random Internal API Setup
+        id: api
+        run: |
+          APIS=("User Management API" "Billing API" "Analytics Events API" "Webhook Ingestor" "OAuth2 Token Exchange")
+          SELECTED=${APIS[$RANDOM % ${#APIS[@]}]}
+          echo "Scaffolding API: $SELECTED"
+          echo "apiName=$SELECTED" >> $GITHUB_OUTPUT
+          sleep 2
+
+      - name: Log API Scaffolding to Port
+        uses: port-labs/port-github-action@v1
+        with:
+          clientId: ${{ env.PORT_CLIENT_ID }}
+          clientSecret: ${{ env.PORT_CLIENT_SECRET }}
+          operation: add-log
+          runId: ${{ env.PORT_RUN_ID }}
+          logMessage: "🔌 Scaffolding complete: ${{ steps.api.outputs.apiName }}"
+
+      - name: Final Status Simulation
+        id: status
+        run: |
+          STATUS_LIST=("SUCCESS" "PARTIAL_SUCCESS" "FAILURE")
+          STATUS=${STATUS_LIST[$RANDOM % ${#STATUS_LIST[@]}]}
+          echo "Pipeline ended with: $STATUS"
+          echo "status=$STATUS" >> $GITHUB_OUTPUT
+
+      - name: Report Final Status to Port
+        uses: port-labs/port-github-action@v1
+        with:
+          clientId: ${{ env.PORT_CLIENT_ID }}
+          clientSecret: ${{ env.PORT_CLIENT_SECRET }}
+          operation: update-run-status
+          runId: ${{ env.PORT_RUN_ID }}
+          status: ${{ steps.status.outputs.status }}
