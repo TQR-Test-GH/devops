@@ -1,111 +1,128 @@
-name: Port Infra Provisioning Simulation
+name: Port CI/CD Simulation
 
 on:
   workflow_dispatch:
     inputs:
-      portRunId:
+      run_id:
         description: 'Port Run ID'
         required: true
-      portBlueprint:
-        description: 'Port Blueprint'
+        type: string
+      context:
+        description: 'Execution Context (JSON string with runId, etc)'
         required: true
-      entityId:
-        description: 'Entity ID'
+        type: string
+      action:
+        description: 'Action Name'
         required: true
-      portAction:
-        description: 'Port Action (created, updated, destroyed)'
+        type: string
+      user:
+        description: 'User Triggering the Action'
         required: true
+        type: string
 
 jobs:
-  provision-infra:
+  mock-cicd:
     runs-on: ubuntu-latest
     env:
-      PORT_CLIENT_ID: ${{ secrets.PORT_CLIENT_ID }}
-      PORT_CLIENT_SECRET: ${{ secrets.PORT_CLIENT_SECRET }}
-      PORT_BASE_URL: https://api.getport.io/v1
-      PORT_BLUEPRINT: ${{ github.event.inputs.portBlueprint }}
-      PORT_ENTITY_ID: ${{ github.event.inputs.entityId }}
-      PORT_RUN_ID: ${{ github.event.inputs.portRunId }}
-      PORT_ACTION: ${{ github.event.inputs.portAction }}
-
+      PORT_RUN_ID: ${{ github.event.inputs.run_id }}
+      PORT_CONTEXT: ${{ github.event.inputs.context }}
+      PORT_ACTION: ${{ github.event.inputs.action }}
+      PORT_USER: ${{ github.event.inputs.user }}
     steps:
-      - name: Checkout Repo
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Log Entity Action to Port
+      - name: Inform pipeline start
         uses: port-labs/port-github-action@v1
         with:
-          clientId: ${{ env.PORT_CLIENT_ID }}
-          clientSecret: ${{ env.PORT_CLIENT_SECRET }}
-          operation: add-log
+          clientId: ${{ secrets.PORT_CLIENT_ID }}
+          clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
+          operation: PATCH_RUN
           runId: ${{ env.PORT_RUN_ID }}
           logMessage: |
-            📘 Port entity `${{ env.PORT_ENTITY_ID }}` was **${{ env.PORT_ACTION }}** via blueprint `${{ env.PORT_BLUEPRINT }}`.
+            CI/CD pipeline started by ${{ env.PORT_USER }} for action '${{ env.PORT_ACTION }}'.
 
-      - name: Simulate Terraform Scaffold
+      - name: Source/Dependency Security Scan
         run: |
-          echo "Initializing Terraform scaffolding..."
-          sleep 2
-          echo "Scaffolded modules: VPC, EKS, GKE, Cloud Run, S3"
+          echo "Running source/dependency security scan..."
+          sleep 7
 
-      - name: Log Scaffold to Port
+      - name: Log source scan to Port
         uses: port-labs/port-github-action@v1
         with:
-          clientId: ${{ env.PORT_CLIENT_ID }}
-          clientSecret: ${{ env.PORT_CLIENT_SECRET }}
-          operation: add-log
+          clientId: ${{ secrets.PORT_CLIENT_ID }}
+          clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
+          operation: PATCH_RUN
           runId: ${{ env.PORT_RUN_ID }}
-          logMessage: "📦 Terraform scaffolding completed: VPC, EKS, GKE, Cloud Run, S3"
+          logMessage: |
+            Source/dependency security scan completed successfully (SAST, secrets, dependencies).
 
-      - name: Random AWS or GCP Provisioning
-        id: cloud
+      - name: Build Stage
         run: |
-          CLOUDS=("AWS Lambda + API Gateway" "AWS Fargate Service" "GCP Cloud Run App" "GCP Pub/Sub with Scheduler" "AWS S3 + CloudFront CDN")
-          SELECTED=${CLOUDS[$RANDOM % ${#CLOUDS[@]}]}
-          echo "Provisioning cloud infra: $SELECTED"
-          echo "cloudService=$SELECTED" >> $GITHUB_OUTPUT
-          sleep 3
+          echo "Building..."
+          sleep 7
 
-      - name: Log Cloud Provisioning to Port
+      - name: Log build stage to Port
         uses: port-labs/port-github-action@v1
         with:
-          clientId: ${{ env.PORT_CLIENT_ID }}
-          clientSecret: ${{ env.PORT_CLIENT_SECRET }}
-          operation: add-log
+          clientId: ${{ secrets.PORT_CLIENT_ID }}
+          clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
+          operation: PATCH_RUN
           runId: ${{ env.PORT_RUN_ID }}
-          logMessage: "🌐 Provisioned cloud service: ${{ steps.cloud.outputs.cloudService }}"
+          logMessage: |
+            Build stage completed successfully for action '${{ env.PORT_ACTION }}'.
 
-      - name: Random Internal API Setup
-        id: api
+      - name: Artifact/Image Security Scan
         run: |
-          APIS=("User Management API" "Billing API" "Analytics Events API" "Webhook Ingestor" "OAuth2 Token Exchange")
-          SELECTED=${APIS[$RANDOM % ${#APIS[@]}]}
-          echo "Scaffolding API: $SELECTED"
-          echo "apiName=$SELECTED" >> $GITHUB_OUTPUT
-          sleep 2
+          echo "Running artifact/image security scan..."
+          sleep 7
 
-      - name: Log API Scaffolding to Port
+      - name: Log artifact scan to Port
         uses: port-labs/port-github-action@v1
         with:
-          clientId: ${{ env.PORT_CLIENT_ID }}
-          clientSecret: ${{ env.PORT_CLIENT_SECRET }}
-          operation: add-log
+          clientId: ${{ secrets.PORT_CLIENT_ID }}
+          clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
+          operation: PATCH_RUN
           runId: ${{ env.PORT_RUN_ID }}
-          logMessage: "🔌 Scaffolding complete: ${{ steps.api.outputs.apiName }}"
+          logMessage: |
+            Artifact/image security scan completed successfully (SCA, container image scanning).
 
-      - name: Final Status Simulation
-        id: status
+      - name: Test Stage
         run: |
-          STATUS_LIST=("SUCCESS" "PARTIAL_SUCCESS" "FAILURE")
-          STATUS=${STATUS_LIST[$RANDOM % ${#STATUS_LIST[@]}]}
-          echo "Pipeline ended with: $STATUS"
-          echo "status=$STATUS" >> $GITHUB_OUTPUT
+          echo "Testing..."
+          sleep 7
 
-      - name: Report Final Status to Port
+      - name: Log test stage to Port
         uses: port-labs/port-github-action@v1
         with:
-          clientId: ${{ env.PORT_CLIENT_ID }}
-          clientSecret: ${{ env.PORT_CLIENT_SECRET }}
-          operation: update-run-status
+          clientId: ${{ secrets.PORT_CLIENT_ID }}
+          clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
+          operation: PATCH_RUN
           runId: ${{ env.PORT_RUN_ID }}
-          status: ${{ steps.status.outputs.status }}
+          logMessage: |
+            Test stage completed successfully for action '${{ env.PORT_ACTION }}'.
+
+      - name: Deploy Stage
+        run: |
+          echo "Deploying..."
+          sleep 7
+
+      - name: Log deploy stage to Port
+        uses: port-labs/port-github-action@v1
+        with:
+          clientId: ${{ secrets.PORT_CLIENT_ID }}
+          clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
+          operation: PATCH_RUN
+          runId: ${{ env.PORT_RUN_ID }}
+          logMessage: |
+            Deploy stage completed successfully for action '${{ env.PORT_ACTION }}'.
+
+      - name: Inform pipeline finish
+        uses: port-labs/port-github-action@v1
+        with:
+          clientId: ${{ secrets.PORT_CLIENT_ID }}
+          clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
+          operation: PATCH_RUN
+          runId: ${{ env.PORT_RUN_ID }}
+          logMessage: |
+            CI/CD pipeline finished for action '${{ env.PORT_ACTION }}'. All stages completed successfully. 
