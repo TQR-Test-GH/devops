@@ -24,6 +24,10 @@ jobs:
   mock-cicd:
     runs-on: ubuntu-latest
     env:
+      PORT_CLIENT_ID: ${{ secrets.PORT_CLIENT_ID }}
+      PORT_CLIENT_SECRET: ${{ secrets.PORT_CLIENT_SECRET }}
+      PORT_BASE_URL: https://api.getport.io/v1
+      PORT_ENTITY_ID: ${{ github.event.inputs.entityId }}
       PORT_RUN_ID: ${{ github.event.inputs.run_id }}
       PORT_CONTEXT: ${{ github.event.inputs.context }}
       PORT_ACTION: ${{ github.event.inputs.action }}
