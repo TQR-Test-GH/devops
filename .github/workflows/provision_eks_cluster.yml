@@ -1,4 +1,5 @@
 name: Provision EKS Cluster
+run-name: "${{ inputs.environment }}/${{ inputs.cluster_name }} · ${{ inputs.node_count }} nodes"
 
 # Dispatched by the Port workflow's `dispatch_iac` node (GitHub integration
 # action, dispatch_workflow). Port watches this run and resolves the node
