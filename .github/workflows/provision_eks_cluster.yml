@@ -1,0 +1,99 @@
+name: Provision EKS Cluster
+
+# Dispatched by the Port workflow's `dispatch_iac` node (GitHub integration
+# action, dispatch_workflow). Port watches this run and resolves the node
+# itself, so the pipeline's only job is to enrich the catalog entity.
+#
+# Real calls: Port only. Terraform/AWS output is simulated — each stage is one
+# `run:` block you can swap for the real command without touching anything else.
+
+on:
+  workflow_dispatch:
+    inputs:
+      port_entity:    { required: true }
+      cluster_name:   { required: true }
+      environment:    { required: true }
+      region:         { required: true }
+      node_count:     { required: true }
+      change_request: { required: false, default: "" }
+
+jobs:
+  provision:
+    name: "terraform apply → ${{ inputs.environment }}/${{ inputs.cluster_name }}"
+    runs-on: ubuntu-latest
+    env:
+      PORT_ENTITY: ${{ inputs.port_entity }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Connect to Port
+        run: |
+          chmod +x scripts/port.sh
+          TOKEN=$(curl -sSf -X POST https://api.getport.io/v1/auth/access_token \
+            -H 'Content-Type: application/json' \
+            -d '{"clientId":"${{ secrets.PORT_CLIENT_ID }}","clientSecret":"${{ secrets.PORT_CLIENT_SECRET }}"}' \
+            | jq -r .accessToken)
+          echo "::add-mask::$TOKEN"
+          echo "PORT_TOKEN=$TOKEN" >> "$GITHUB_ENV"
+
+      - name: Start
+        run: |
+          scripts/port.sh patch "$(jq -n --arg u "$RUN_URL" '{properties:{run_url:$u}}')"
+          scripts/port.sh log "IaC pipeline started - [GitHub run #${{ github.run_number }}]($RUN_URL)."
+          
+      - name: terraform plan
+        id: plan
+        run: |
+          echo "module.vpc.aws_vpc.this                will be created"
+          echo "module.eks.aws_eks_cluster.this        will be created"
+          echo "module.eks.aws_eks_node_group.default  will be created (${{ inputs.node_count }} × m6i.large)"
+          sleep 4
+          echo "Plan: 34 to add, 0 to change, 0 to destroy."
+          COST=$(( 73 + 70 * ${{ inputs.node_count }} ))
+          echo "cost=$COST" >> "$GITHUB_OUTPUT"
+          scripts/port.sh log "**plan** - 34 to add, 0 to destroy. Est. \$$COST/mo."
+
+      - name: terraform apply
+        id: apply
+        run: |
+          echo "module.vpc.aws_vpc.this: Creation complete [id=vpc-0a1b2c3d]"
+          sleep 4
+          echo "module.eks.aws_eks_cluster.this: Still creating... [4s elapsed]"
+          sleep 5
+          ENDPOINT="https://$(openssl rand -hex 14 | tr 'a-f' 'A-F').gr7.${{ inputs.region }}.eks.amazonaws.com"
+          echo "module.eks.aws_eks_cluster.this: Creation complete [id=${{ inputs.cluster_name }}]"
+          echo "module.eks.aws_eks_node_group.default: Creation complete (${{ inputs.node_count }} nodes)"
+          echo "Apply complete! Resources: 34 added, 0 changed, 0 destroyed."
+          echo "endpoint=$ENDPOINT" >> "$GITHUB_OUTPUT"
+          scripts/port.sh log "**apply** - 34 resources added, ${{ inputs.node_count }} nodes Ready."
+
+      - name: bootstrap addons
+        run: |
+          echo "helm upgrade --install argo-cd argo/argo-cd -n argocd"
+          echo "kubectl apply -f rbac/${{ inputs.environment }}/"
+          sleep 3
+          scripts/port.sh log "**bootstrap** - ArgoCD and RBAC applied."
+
+      - name: Mark Running
+        run: |
+          scripts/port.sh patch "$(jq -n \
+            --arg e '${{ steps.apply.outputs.endpoint }}' \
+            --argjson c ${{ steps.plan.outputs.cost }} \
+            '{properties:{status:"Running", endpoint:$e, monthly_cost:$c}}')"
+          scripts/port.sh log "Cluster **Running**."
+
+      - name: Close change request
+        if: inputs.change_request != ''
+        run: |
+          echo "PATCH https://acme.service-now.com/api/now/table/change_request?number=${{ inputs.change_request }}"
+          echo '  {"state":"closed","close_code":"successful"}  →  200 OK'
+          scripts/port.sh cr "${{ inputs.change_request }}" '{"properties":{"state":"closed"}}'
+          scripts/port.sh log "ServiceNow \`${{ inputs.change_request }}\` closed."
+
+      - name: On failure
+        if: failure()
+        run: |
+          scripts/port.sh patch '{"properties":{"status":"Failed"}}'
+          scripts/port.sh log "Pipeline failed - see the [run log]($RUN_URL)."
