@@ -1,0 +1,115 @@
+name: Bump Skill Pin
+run-name: "Bump ${{ inputs.skill_id }} ${{ inputs.old_version }} → ${{ inputs.new_version }}"
+
+# Dispatched by the Port workflow `bump_outdated_skill_pins`.
+# Port has already worked out WHICH repos are behind; this job just applies
+# the bump and opens one PR per repo, then writes the PR link back to the
+# skill_usage entity in the catalog.
+
+on:
+  workflow_dispatch:
+    inputs:
+      skill_id:    { required: true }
+      skill_title: { required: false, default: "" }
+      new_version: { required: true }
+      old_version: { required: false, default: "" }
+      usages:
+        description: 'JSON array: [{"usage","repo","path","from"}]'
+        required: true
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.build.outputs.matrix }}
+      count: ${{ steps.build.outputs.count }}
+    steps:
+      - id: build
+        run: |
+          echo '${{ inputs.usages }}' | jq .
+          COUNT=$(echo '${{ inputs.usages }}' | jq 'length')
+          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
+          echo "matrix=$(echo '${{ inputs.usages }}' | jq -c .)" >> "$GITHUB_OUTPUT"
+          echo "::notice::$COUNT repo(s) to bump to ${{ inputs.new_version }}"
+
+  bump:
+    needs: plan
+    if: needs.plan.outputs.count != '0'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false          # one bad repo must not block the others
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    name: "${{ matrix.repo }} (${{ matrix.from }} → ${{ inputs.new_version }})"
+    steps:
+      - name: Checkout ${{ matrix.repo }}
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/${{ matrix.repo }}
+          token: ${{ secrets.SKILL_BUMP_TOKEN }}
+
+      - name: Bump the pin
+        id: edit
+        run: |
+          FILE="${{ matrix.path }}"
+          if [ ! -f "$FILE" ]; then
+            echo "::error::$FILE not found in ${{ matrix.repo }}"
+            exit 1
+          fi
+          jq --arg n '${{ inputs.skill_id }}' --arg v '${{ inputs.new_version }}' \
+            '(.skills[] | select(.name == $n) | .version) = $v' "$FILE" > "$FILE.tmp"
+          mv "$FILE.tmp" "$FILE"
+          git diff --stat
+          if git diff --quiet; then
+            echo "::warning::no change in ${{ matrix.repo }} — pin may already be current"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Open PR
+        id: pr
+        if: steps.edit.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.SKILL_BUMP_TOKEN }}
+        run: |
+          BRANCH="skill-bump/${{ inputs.skill_id }}-${{ inputs.new_version }}"
+          git config user.name  "port-skill-bot"
+          git config user.email "port-skill-bot@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git commit -am "chore: bump ${{ inputs.skill_id }} to ${{ inputs.new_version }}"
+          git push -u origin "$BRANCH" --force
+          URL=$(gh pr create \
+            --repo "${{ github.repository_owner }}/${{ matrix.repo }}" \
+            --head "$BRANCH" \
+            --title "chore: bump ${{ inputs.skill_id }} to ${{ inputs.new_version }}" \
+            --body "$(cat <<EOF
+          Pinned version of **${{ inputs.skill_title }}** (\`${{ inputs.skill_id }}\`) is behind the registry.
+
+          | | |
+          |---|---|
+          | Pinned here | \`${{ matrix.from }}\` |
+          | Latest published | \`${{ inputs.new_version }}\` |
+          | Manifest | \`${{ matrix.path }}\` |
+
+          Opened automatically by the Port workflow \`bump_outdated_skill_pins\`, which
+          fired when the skill's version changed in the registry and found this repo
+          pinning an older semver.
+          EOF
+          )" 2>&1 | tail -1)
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "::notice::${{ matrix.repo }} → $URL"
+
+      - name: Record the PR in Port
+        if: steps.pr.outputs.url != ''
+        run: |
+          TOKEN=$(curl -sSf -X POST https://api.port.io/v1/auth/access_token \
+            -H 'Content-Type: application/json' \
+            -d '{"clientId":"${{ secrets.PORT_CLIENT_ID }}","clientSecret":"${{ secrets.PORT_CLIENT_SECRET }}"}' \
+            | jq -r .accessToken)
+          echo "::add-mask::$TOKEN"
+          curl -sS -X PATCH \
+            "https://api.port.io/v1/blueprints/skill_usage/entities/${{ matrix.usage }}" \
+            -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+            -d "$(jq -n --arg u '${{ steps.pr.outputs.url }}' --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+                  '{properties:{last_bump_pr:$u, last_bump_at:$t}}')" >/dev/null
