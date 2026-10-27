@@ -78,7 +78,7 @@ jobs:
           echo "helm upgrade --install argo-cd argo/argo-cd -n argocd"
           echo "kubectl apply -f rbac/${{ inputs.environment }}/"
           sleep 3
-          scripts/port.sh log "**bootstrap** - ArgoCD and RBAC applied."
+          scripts/port.sh l   og "**bootstrap** - ArgoCD and RBAC applied."
 
       - name: Mark Running
         run: |
