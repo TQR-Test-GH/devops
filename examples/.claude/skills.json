@@ -1,1 +1,11 @@
+{
+  "$comment": "Drop this at the manifest_path recorded on each skill_usage entity. The bump Action edits the matching entry's version in place.",
+  "skills": [
+    {
+      "name": "incident-postmortem",
+      "version": "1.2.0",
+      "source": "github.com/TQR-Test-GH/skills-registry-demo/skills/incident-postmortem"
+    }
+  ]
+}
 
