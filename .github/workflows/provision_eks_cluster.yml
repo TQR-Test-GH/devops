@@ -1,13 +1,6 @@
 name: Provision EKS Cluster
 run-name: "${{ inputs.environment }}/${{ inputs.cluster_name }} · ${{ inputs.node_count }} nodes"
 
-# Dispatched by the Port workflow's `dispatch_iac` node (GitHub integration
-# action, dispatch_workflow). Port watches this run and resolves the node
-# itself, so the pipeline's only job is to enrich the catalog entity.
-#
-# Real calls: Port only. Terraform/AWS output is simulated — each stage is one
-# `run:` block you can swap for the real command without touching anything else.
-
 on:
   workflow_dispatch:
     inputs:
@@ -44,7 +37,7 @@ jobs:
           scripts/port.sh patch "$(jq -n --arg u "$RUN_URL" '{properties:{run_url:$u}}')"
           scripts/port.sh log "IaC pipeline started - [GitHub run #${{ github.run_number }}]($RUN_URL)."
 
-      # ---- simulated: swap the body for `terraform plan` ----
+      # ---- simulated tf plan ----
       - name: terraform plan
         id: plan
         run: |
@@ -57,7 +50,7 @@ jobs:
           echo "cost=$COST" >> "$GITHUB_OUTPUT"
           scripts/port.sh log "**plan** - 34 to add, 0 to destroy. Est. \$$COST/mo."
 
-      # ---- simulated: swap the body for `terraform apply` ----
+      # ---- simulated tf apply ----
       - name: terraform apply
         id: apply
         run: |
@@ -72,7 +65,7 @@ jobs:
           echo "endpoint=$ENDPOINT" >> "$GITHUB_OUTPUT"
           scripts/port.sh log "**apply** - 34 resources added, ${{ inputs.node_count }} nodes Ready."
 
-      # ---- simulated: swap the body for helm/kubectl ----
+      # ---- simulated K8s commands----
       - name: bootstrap addons
         run: |
           echo "helm upgrade --install argo-cd argo/argo-cd -n argocd"
